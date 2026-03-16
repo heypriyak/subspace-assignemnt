@@ -69,6 +69,7 @@ function AuthScreen({ authUrl, onSessionChange }) {
   const [password, setPassword] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [activeError, setActiveError] = useState("")
+  const [infoMessage, setInfoMessage] = useState("")
 
   const authRequest = useCallback(async (path, payload) => {
     const response = await fetch(`${authUrl}${path}`, {
@@ -92,6 +93,7 @@ function AuthScreen({ authUrl, onSessionChange }) {
     event.preventDefault()
     setIsSubmitting(true)
     setActiveError("")
+    setInfoMessage("")
 
     try {
       const data = isSignup
@@ -100,6 +102,12 @@ function AuthScreen({ authUrl, onSessionChange }) {
 
       if (data.session) {
         onSessionChange(data.session)
+        return
+      }
+
+      if (isSignup && !data.error) {
+        setInfoMessage("Account created. Please sign in with the same email and password.")
+        setIsSignup(false)
         return
       }
 
@@ -148,6 +156,7 @@ function AuthScreen({ authUrl, onSessionChange }) {
           </button>
         </form>
 
+        {infoMessage ? <p className="muted">{infoMessage}</p> : null}
         {activeError ? <p className="error">{activeError}</p> : null}
 
         <button
