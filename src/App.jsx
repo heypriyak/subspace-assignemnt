@@ -64,6 +64,7 @@ function App({ authUrl, graphqlUrl }) {
 }
 
 function AuthScreen({ authUrl, onSessionChange }) {
+  const minPasswordLength = 9
   const [isSignup, setIsSignup] = useState(false)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -91,7 +92,13 @@ function AuthScreen({ authUrl, onSessionChange }) {
     }
 
     if (!response.ok || data.error) {
-      throw new Error(data.message || data.error?.message || data.error || "Authentication failed")
+      throw new Error(
+        data.message
+          || data.error?.message
+          || data.error
+          || raw
+          || `Authentication failed (${response.status})`
+      )
     }
 
     return data
@@ -102,6 +109,12 @@ function AuthScreen({ authUrl, onSessionChange }) {
     setIsSubmitting(true)
     setActiveError("")
     setInfoMessage("")
+
+    if (password.length < minPasswordLength) {
+      setActiveError(`Password must be at least ${minPasswordLength} characters.`)
+      setIsSubmitting(false)
+      return
+    }
 
     try {
       const data = isSignup
@@ -155,7 +168,7 @@ function AuthScreen({ authUrl, onSessionChange }) {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               required
-              minLength={8}
+              minLength={minPasswordLength}
             />
           </label>
 
