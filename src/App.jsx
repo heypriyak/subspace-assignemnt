@@ -80,7 +80,15 @@ function AuthScreen({ authUrl, onSessionChange }) {
       body: JSON.stringify(payload),
     })
 
-    const data = await response.json()
+    const raw = await response.text()
+    let data = {}
+    if (raw) {
+      try {
+        data = JSON.parse(raw)
+      } catch {
+        data = {}
+      }
+    }
 
     if (!response.ok || data.error) {
       throw new Error(data.message || data.error?.message || data.error || "Authentication failed")
