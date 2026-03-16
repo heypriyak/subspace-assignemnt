@@ -1,13 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import {
-  useAuthenticationStatus,
-  useNhostClient,
-  useSignInEmailPassword,
-  useSignOut,
-  useSignUpEmailPassword,
-  useUserData,
-} from "@nhost/react"
 import "./App.css"
+
+const SESSION_STORAGE_KEY = "subspace-auth-session"
 
 const GET_TODOS = `
   query GetTodos {
@@ -47,43 +41,78 @@ const DELETE_TODO = `
   }
 `
 
-function App() {
-  const { isLoading, isAuthenticated } = useAuthenticationStatus()
+function App({ authUrl, graphqlUrl }) {
+  const [session, setSession] = useState(() => {
+    const savedSession = window.localStorage.getItem(SESSION_STORAGE_KEY)
+    return savedSession ? JSON.parse(savedSession) : null
+  })
 
-  if (isLoading) {
-    return <main className="container"><p>Checking session...</p></main>
-  }
+  const saveSession = useCallback((nextSession) => {
+    setSession(nextSession)
 
-  return isAuthenticated ? <TodoScreen /> : <AuthScreen />
-}
-
-function AuthScreen() {
-  const [isSignup, setIsSignup] = useState(false)
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-
-  const {
-    signInEmailPassword,
-    isLoading: isSigningIn,
-    error: signInError,
-  } = useSignInEmailPassword()
-
-  const {
-    signUpEmailPassword,
-    isLoading: isSigningUp,
-    error: signUpError,
-  } = useSignUpEmailPassword()
-
-  const activeError = signInError || signUpError
-
-  async function onSubmit(event) {
-    event.preventDefault()
-    if (isSignup) {
-      await signUpEmailPassword(email, password)
+    if (nextSession) {
+      window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(nextSession))
       return
     }
 
-    await signInEmailPassword(email, password)
+    window.localStorage.removeItem(SESSION_STORAGE_KEY)
+  }, [])
+
+  return session?.accessToken
+    ? <TodoScreen graphqlUrl={graphqlUrl} session={session} onSessionChange={saveSession} authUrl={authUrl} />
+    : <AuthScreen authUrl={authUrl} onSessionChange={saveSession} />
+}
+
+function AuthScreen({ authUrl, onSessionChange }) {
+  const [isSignup, setIsSignup] = useState(false)
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [activeError, setActiveError] = useState("")
+
+  const authRequest = useCallback(async (path, payload) => {
+    const response = await fetch(`${authUrl}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    })
+
+    const data = await response.json()
+
+    if (!response.ok || data.error) {
+      throw new Error(data.message || data.error?.message || data.error || "Authentication failed")
+    }
+
+    return data
+  }, [authUrl])
+
+  async function onSubmit(event) {
+    event.preventDefault()
+    setIsSubmitting(true)
+    setActiveError("")
+
+    try {
+      const data = isSignup
+        ? await authRequest("/signup/email-password", { email, password })
+        : await authRequest("/signin/email-password", { email, password })
+
+      if (data.session) {
+        onSessionChange(data.session)
+        return
+      }
+
+      if (data.mfa) {
+        throw new Error("Multi-factor authentication is enabled and not handled in this demo app")
+      }
+
+      throw new Error("Authentication did not return a session")
+    } catch (requestError) {
+      setActiveError(requestError.message)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -114,12 +143,12 @@ function AuthScreen() {
             />
           </label>
 
-          <button type="submit" disabled={isSigningIn || isSigningUp}>
+          <button type="submit" disabled={isSubmitting}>
             {isSignup ? "Sign up" : "Sign in"}
           </button>
         </form>
 
-        {activeError ? <p className="error">{activeError.message}</p> : null}
+        {activeError ? <p className="error">{activeError}</p> : null}
 
         <button
           type="button"
@@ -133,26 +162,22 @@ function AuthScreen() {
   )
 }
 
-function TodoScreen() {
-  const nhost = useNhostClient()
-  const user = useUserData()
-  const { signOut } = useSignOut()
+function TodoScreen({ graphqlUrl, session, onSessionChange, authUrl }) {
+  const user = session?.user
 
   const [title, setTitle] = useState("")
   const [todos, setTodos] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
-  const endpoint = useMemo(() => nhost.graphql.getUrl(), [nhost])
+  const endpoint = useMemo(() => graphqlUrl, [graphqlUrl])
 
   const graphqlRequest = useCallback(async (query, variables = {}) => {
-    const token = nhost.auth.getAccessToken()
-
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${session.accessToken}`,
       },
       body: JSON.stringify({ query, variables }),
     })
@@ -164,7 +189,7 @@ function TodoScreen() {
     }
 
     return payload.data
-  }, [endpoint, nhost])
+  }, [endpoint, session.accessToken])
 
   const loadTodos = useCallback(async () => {
     try {
@@ -226,6 +251,24 @@ function TodoScreen() {
     }
   }
 
+  async function signOut() {
+    try {
+      await fetch(`${authUrl}/signout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+        },
+        body: JSON.stringify({
+          refreshToken: session.refreshToken,
+          all: false,
+        }),
+      })
+    } finally {
+      onSessionChange(null)
+    }
+  }
+
   return (
     <main className="container">
       <section className="card">
@@ -234,7 +277,7 @@ function TodoScreen() {
             <h1>Todo App</h1>
             <p className="muted">Signed in as {user?.email}</p>
           </div>
-          <button type="button" onClick={() => signOut()}>
+          <button type="button" onClick={signOut}>
             Sign out
           </button>
         </div>

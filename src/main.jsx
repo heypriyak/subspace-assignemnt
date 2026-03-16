@@ -1,6 +1,5 @@
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
-import { NhostClient, NhostProvider } from "@nhost/react"
 import "./index.css"
 import App from "./App.jsx"
 
@@ -9,6 +8,14 @@ const region = import.meta.env.VITE_NHOST_REGION
 const authUrl = import.meta.env.VITE_NHOST_AUTH_URL
 const graphqlUrl = import.meta.env.VITE_NHOST_GRAPHQL_URL
 const storageUrl = import.meta.env.VITE_NHOST_STORAGE_URL
+
+const resolvedAuthUrl = authUrl || (subdomain && region
+  ? `https://${subdomain}.auth.${region}.nhost.run/v1`
+  : null)
+
+const resolvedGraphqlUrl = graphqlUrl || (subdomain && region
+  ? `https://${subdomain}.graphql.${region}.nhost.run/v1`
+  : null)
 
 function MissingConfig() {
   return (
@@ -25,27 +32,16 @@ function MissingConfig() {
   )
 }
 
-const nhostConfig = authUrl && graphqlUrl
-  ? {
-      authUrl,
-      graphqlUrl,
-      storageUrl,
-    }
-  : subdomain && region
-    ? {
-        subdomain,
-        region,
-      }
-    : null
-
-const nhost = nhostConfig ? new NhostClient(nhostConfig) : null
+const hasConfig = Boolean(resolvedAuthUrl && resolvedGraphqlUrl)
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
-    {nhost ? (
-      <NhostProvider nhost={nhost}>
-        <App />
-      </NhostProvider>
+    {hasConfig ? (
+      <App
+        authUrl={resolvedAuthUrl}
+        graphqlUrl={resolvedGraphqlUrl}
+        storageUrl={storageUrl}
+      />
     ) : (
       <MissingConfig />
     )}
